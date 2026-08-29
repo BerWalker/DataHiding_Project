@@ -1,515 +1,1248 @@
-# debugger.py
-#
-# Debugger para o protocolo de esteganografia.
-#
-# Uso:
-#   python debugger.py
-#
-# O arquivo protocolo.py deve estar no mesmo diretório.
-#
-# Este debugger não altera o protocolo; ele apenas inspeciona
-# e valida os dados produzidos por ele.
+"""
+debug.py — Inspeção detalhada do protocolo de esteganografia.
+
+Uso:
+    python debug.py
+    python debug.py "outra mensagem"
+
+O arquivo stego.py permanece sem código de debug.
+"""
+
+import sys
+
+import stego
 
 from stego import (
-    MENSAGEM,
-    CARRIER,
-    CARRIER_TAMANHO,
     MAGIC_HEADER,
     MAGIC_INICIO,
     HEADER_BYTES,
     INICIO_BYTES,
     capacidade,
-    codificar,
     codificar_mensagem,
+    codificar,
     decodificar,
-    esconder_int,
-    ler_int,
+    ler_bits,
+    ler_bytes,
 )
 
 
 # ============================================================
-# CONFIGURAÇÃO DO DEBUGGER
+# CONFIGURAÇÃO VISUAL
 # ============================================================
 
-MOSTRAR_HEX = True
-MOSTRAR_LSB = True
-MAX_HEX_BYTES = 32
+W = 90
+
+RESET = "\033[0m"
+BOLD = "\033[1m"
+
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+BLUE = "\033[94m"
+MAGENTA = "\033[95m"
+CYAN = "\033[96m"
+GRAY = "\033[90m"
+WHITE = "\033[97m"
 
 
-# ============================================================
-# UTILIDADES
-# ============================================================
-
-def linha(char="=", tamanho=72):
-    print(char * tamanho)
+def cor(texto, codigo):
+    return f"{codigo}{texto}{RESET}"
 
 
-def titulo(texto):
+def secao(titulo):
     print()
-    linha()
-    print(texto)
-    linha()
+    print(cor("═" * W, CYAN))
+    print(cor(f"  {titulo}", BOLD + CYAN))
+    print(cor("═" * W, CYAN))
 
 
-def hex_bytes(data: bytes, limite=None) -> str:
-    if limite is not None and len(data) > limite:
-        return (
-            data[:limite].hex(" ")
-            + f" ... ({len(data)} bytes no total)"
+def subseção(titulo):
+    print()
+    print(cor(f"--- {titulo} ---", BLUE))
+
+
+def ok(texto):
+    print(f"  {cor('✓', GREEN)} {texto}")
+
+
+def erro(texto):
+    print(f"  {cor('✗', RED)} {texto}")
+
+
+def aviso(texto):
+    print(f"  {cor('!', YELLOW)} {texto}")
+
+
+def info(texto):
+    print(f"     {texto}")
+
+
+# ============================================================
+# FORMATAÇÃO
+# ============================================================
+
+def bits8(valor):
+    return f"{valor:08b}"
+
+
+def bits2(valor):
+    return f"{valor:02b}"
+
+
+def hex_bytes(dados):
+    return " ".join(f"{b:02X}" for b in dados)
+
+
+def texto_seguro(dados):
+    return "".join(
+        chr(b) if 32 <= b <= 126 else "."
+        for b in dados
+    )
+
+
+# ============================================================
+# MAPA DO PAYLOAD
+# ============================================================
+
+def mapa_payload(payload, inicio, tamanho):
+    """
+    Identifica a função de cada byte do carrier.
+
+    H = Header
+    M = Marcador
+    D = Dados
+    . = Não utilizado
+    """
+
+    mapa = ["."] * len(payload)
+
+    # Header
+    for i in range(
+        min(HEADER_BYTES, len(payload))
+    ):
+        mapa[i] = "H"
+
+    # Marcador
+    if inicio is not None:
+        for i in range(
+            inicio,
+            min(inicio + INICIO_BYTES, len(payload))
+        ):
+            mapa[i] = "M"
+
+        # Mensagem
+        msg_inicio = inicio + INICIO_BYTES
+        msg_fim = msg_inicio + tamanho * 4
+
+        for i in range(
+            msg_inicio,
+            min(msg_fim, len(payload))
+        ):
+            mapa[i] = "D"
+
+    return mapa
+
+
+def imprimir_mapa(payload, inicio, tamanho):
+    mapa = mapa_payload(
+        payload,
+        inicio,
+        tamanho
+    )
+
+    cols = 16
+
+    print()
+
+    print("      ", end="")
+
+    for i in range(cols):
+        print(f"{i:02X} ", end="")
+
+    print()
+
+    print("     " + "─" * (cols * 3))
+
+    for linha in range(
+        0,
+        len(payload),
+        cols
+    ):
+        print(f"  {linha:02X} ", end="")
+
+        for simbolo in mapa[linha:linha + cols]:
+
+            if simbolo == "H":
+                c = BLUE
+            elif simbolo == "M":
+                c = GREEN
+            elif simbolo == "D":
+                c = YELLOW
+            else:
+                c = GRAY
+
+            print(
+                cor(simbolo, c),
+                end="  "
+            )
+
+        print()
+
+    print()
+
+    print(
+        f"     {cor('H', BLUE)} = Header"
+    )
+
+    print(
+        f"     {cor('M', GREEN)} = Marcador"
+    )
+
+    print(
+        f"     {cor('D', YELLOW)} = Dados"
+    )
+
+    print(
+        f"     {cor('.', GRAY)} = Não utilizado"
+    )
+
+
+# ============================================================
+# INFORMAÇÕES GERAIS
+# ============================================================
+
+def mostrar_configuracao(mensagem, carrier):
+    secao("CONFIGURAÇÃO")
+
+    info(
+        f"MAGIC_HEADER : "
+        f"0x{MAGIC_HEADER:04X}"
+    )
+
+    info(
+        f"MAGIC_INICIO : "
+        f"0x{MAGIC_INICIO:04X}"
+    )
+
+    info(
+        f"HEADER_BYTES : "
+        f"{HEADER_BYTES}"
+    )
+
+    info(
+        f"INICIO_BYTES : "
+        f"{INICIO_BYTES}"
+    )
+
+    info(
+        f"Carrier      : "
+        f"{len(carrier)} bytes"
+    )
+
+    info(
+        f"Mensagem     : "
+        f"{len(mensagem)} bytes"
+    )
+
+    info(
+        f"Capacidade   : "
+        f"{capacidade(carrier)} bytes/fragmento"
+    )
+
+    print()
+
+    print(
+        f"Mensagem: "
+        f"{cor(repr(mensagem), MAGENTA)}"
+    )
+
+    print(
+        f"Hex:      "
+        f"{cor(hex_bytes(mensagem), CYAN)}"
+    )
+
+
+# ============================================================
+# FRAGMENTAÇÃO
+# ============================================================
+
+def mostrar_fragmentacao(mensagem, carrier):
+    secao("FRAGMENTAÇÃO")
+
+    cap = capacidade(carrier)
+
+    if cap <= 0:
+        raise ValueError(
+            "Carrier não possui capacidade para mensagem."
         )
-    return data.hex(" ")
+
+    fragmentos = [
+        mensagem[i:i + cap]
+        for i in range(
+            0,
+            len(mensagem),
+            cap
+        )
+    ]
+
+    info(
+        f"Capacidade por fragmento: "
+        f"{cap} bytes"
+    )
+
+    info(
+        f"Mensagem total: "
+        f"{len(mensagem)} bytes"
+    )
+
+    info(
+        f"Quantidade de fragmentos: "
+        f"{len(fragmentos)}"
+    )
+
+    print()
+
+    for i, fragmento in enumerate(fragmentos):
+
+        print(
+            f"  {cor(f'[{i}]', CYAN)} "
+            f"{len(fragmento):3d} bytes  "
+            f"{repr(fragmento)}"
+        )
+
+        print(
+            f"       HEX: "
+            f"{hex_bytes(fragmento)}"
+        )
+
+    return fragmentos
 
 
-def bits2(valor: int) -> str:
-    return format(valor & 0b11, "02b")
+# ============================================================
+# BYTES ALTERADOS
+# ============================================================
 
-
-def comparar_bytes(original: bytes, payload: bytes):
-    """Mostra diferenças entre carrier original e payload."""
-
-    print(f"Carrier original: {len(original)} bytes")
-    print(f"Payload:          {len(payload)} bytes")
-
-    if len(original) != len(payload):
-        print("[ERRO] Tamanhos diferentes.")
-        return
+def mostrar_bytes_alterados(carrier_original, payload):
+    secao("BYTES ALTERADOS")
 
     alterados = []
 
-    for pos, (a, b) in enumerate(zip(original, payload)):
-        if a != b:
-            alterados.append((pos, a, b))
+    for i, (original, novo) in enumerate(
+        zip(carrier_original, payload)
+    ):
+        if original != novo:
+            alterados.append(
+                (i, original, novo)
+            )
 
-    print(f"Bytes alterados:   {len(alterados)}")
+    info(
+        f"Carrier original : "
+        f"{len(carrier_original)} bytes"
+    )
+
+    info(
+        f"Payload          : "
+        f"{len(payload)} bytes"
+    )
+
+    info(
+        f"Bytes alterados  : "
+        f"{len(alterados)}"
+    )
+
+    info(
+        f"Bytes intactos   : "
+        f"{len(payload) - len(alterados)}"
+    )
 
     if not alterados:
-        print("[INFO] Nenhum byte foi alterado.")
+        aviso("Nenhum byte foi alterado.")
         return
 
     print()
-    print("Posição | Original | Payload | LSB orig. | LSB novo")
-    print("-" * 56)
 
-    for pos, original_byte, payload_byte in alterados:
+    print(
+        "  POS    ORIGINAL       PAYLOAD       XOR       "
+        "LSB original   LSB novo"
+    )
+
+    print(
+        "  " + "─" * 78
+    )
+
+    for pos, original, novo in alterados:
+
+        xor = original ^ novo
+
         print(
-            f"{pos:6d} | "
-            f"0x{original_byte:02X}     | "
-            f"0x{payload_byte:02X}   | "
-            f"   {bits2(original_byte)}     | "
-            f"   {bits2(payload_byte)}"
+            f"  {pos:04d}   "
+            f"0x{original:02X} "
+            f"{bits8(original)}   "
+            f"0x{novo:02X} "
+            f"{bits8(novo)}   "
+            f"0x{xor:02X}   "
+            f"{bits2(original & 0b11)}"
+            f"            "
+            f"{cor(bits2(novo & 0b11), YELLOW)}"
         )
 
 
 # ============================================================
-# DEBUG DO HEADER
+# PAYLOAD COMPLETO
 # ============================================================
 
-def debug_header(payload: bytes):
-    titulo("HEADER")
+def mostrar_payload(payload, carrier_original=None):
+    secao(
+        f"PAYLOAD COMPLETO ({len(payload)} bytes)"
+    )
 
-    if len(payload) < HEADER_BYTES:
-        print(
-            f"[ERRO] Payload possui apenas {len(payload)} bytes; "
-            f"HEADER_BYTES = {HEADER_BYTES}."
+    print()
+
+    print(
+        cor(
+            "HEX:",
+            BOLD + CYAN
         )
-        return None
+    )
+
+    print(
+        hex_bytes(payload)
+    )
+
+    print()
+
+    print(
+        cor(
+            "TABELA:",
+            BOLD + CYAN
+        )
+    )
+
+    print()
+
+    print(
+        "  POS   HEX   BINÁRIO     ASCII    LSB"
+    )
+
+    print(
+        "  " + "─" * 43
+    )
+
+    for i, byte in enumerate(payload):
+
+        ascii_char = (
+            chr(byte)
+            if 32 <= byte <= 126
+            else "."
+        )
+
+        lsb = byte & 0b11
+
+        alterado = (
+            carrier_original is not None
+            and i < len(carrier_original)
+            and carrier_original[i] != byte
+        )
+
+        if alterado:
+            c = YELLOW
+        else:
+            c = GRAY
+
+        print(
+            cor(
+                f"  {i:04d}  "
+                f"{byte:02X}    "
+                f"{byte:08b}      "
+                f"{ascii_char!r}       "
+                f"{lsb:02b}",
+                c
+            )
+        )
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+def inspecionar_header(payload):
+    secao("HEADER")
 
     pos = 0
 
-    magic, pos = ler_int(payload, pos, 16)
-    total, pos = ler_int(payload, pos, 8)
-    seq, pos = ler_int(payload, pos, 8)
-    tam, pos = ler_int(payload, pos, 8)
+    magic, pos = ler_bits(
+        payload,
+        pos,
+        16
+    )
 
-    print(f"Magic esperado : 0x{MAGIC_HEADER:04X}")
-    print(f"Magic recebido : 0x{magic:04X}")
-    print(f"Magic válido   : {magic == MAGIC_HEADER}")
-    print()
+    total, pos = ler_bits(
+        payload,
+        pos,
+        8
+    )
 
-    print(f"Total          : {total}")
-    print(f"Sequência      : {seq}")
-    print(f"Tamanho        : {tam}")
-    print(f"Bytes consumidos pelo header: {pos}")
+    seq, pos = ler_bits(
+        payload,
+        pos,
+        8
+    )
 
-    print()
-    print("Validações:")
-
-    ok = True
-
-    if magic != MAGIC_HEADER:
-        print("  [ERRO] MAGIC_HEADER inválido.")
-        ok = False
-    else:
-        print("  [OK] MAGIC_HEADER.")
-
-    if total == 0:
-        print("  [ERRO] total == 0.")
-        ok = False
-    else:
-        print("  [OK] total != 0.")
-
-    if seq >= total:
-        print("  [ERRO] seq >= total.")
-        ok = False
-    else:
-        print("  [OK] seq < total.")
-
-    if tam == 0:
-        print("  [ERRO] tamanho == 0.")
-        ok = False
-    else:
-        print("  [OK] tamanho != 0.")
+    tamanho, pos = ler_bits(
+        payload,
+        pos,
+        8
+    )
 
     print()
-    print("[OK] Header válido." if ok else "[ERRO] Header inválido.")
 
-    return {
-        "magic": magic,
-        "total": total,
-        "seq": seq,
-        "tam": tam,
-    }
+    info(
+        f"Magic:   "
+        f"0x{magic:04X}  "
+        f"bits={bits8(magic >> 8)}"
+        f"{bits8(magic & 0xFF)}"
+    )
+
+    info(
+        f"Total:   {total}"
+    )
+
+    info(
+        f"Seq:     {seq}"
+    )
+
+    info(
+        f"Tamanho: {tamanho} bytes"
+    )
+
+    info(
+        f"Próxima posição: {pos}"
+    )
+
+    print()
+
+    if magic == MAGIC_HEADER:
+        ok(
+            f"MAGIC_HEADER correto "
+            f"(0x{MAGIC_HEADER:04X})"
+        )
+    else:
+        erro(
+            f"MAGIC_HEADER inválido. "
+            f"Esperado 0x{MAGIC_HEADER:04X}"
+        )
+
+    if total > 0:
+        ok(f"Total válido: {total}")
+    else:
+        erro("Total inválido")
+
+    if seq < total:
+        ok(f"Sequência válida: {seq}")
+    else:
+        erro(
+            f"Sequência inválida: "
+            f"{seq} >= {total}"
+        )
+
+    if tamanho > 0:
+        ok(f"Tamanho válido: {tamanho}")
+    else:
+        erro("Tamanho inválido")
+
+    return magic, total, seq, tamanho
 
 
 # ============================================================
-# PROCURA DOS MARCADORES
+# MARCADOR
 # ============================================================
 
-def encontrar_marcadores(payload: bytes):
-    titulo("PROCURA DO MAGIC_INICIO")
+def inspecionar_marcador(payload):
+    secao("MARCADOR DE INÍCIO")
 
-    encontrados = []
-
-    if len(payload) < HEADER_BYTES + INICIO_BYTES:
-        print("[ERRO] Payload pequeno demais.")
-        return encontrados
+    inicio = None
+    tentativas = 0
 
     for p in range(
         HEADER_BYTES,
         len(payload) - INICIO_BYTES + 1
     ):
-        valor, _ = ler_int(payload, p, 32)
+
+        valor, _ = ler_bits(
+            payload,
+            p,
+            16
+        )
+
+        tentativas += 1
 
         if valor == MAGIC_INICIO:
-            encontrados.append(p)
+            inicio = p
+            break
 
-    print(f"Magic procurado: 0x{MAGIC_INICIO:08X}")
-    print(f"Ocorrências:     {len(encontrados)}")
+    info(
+        f"Início da busca: "
+        f"{HEADER_BYTES}"
+    )
 
-    if not encontrados:
-        print("[ERRO] Nenhum marcador encontrado.")
-    else:
-        for i, pos in enumerate(encontrados):
-            print(f"  [{i}] posição {pos}")
+    info(
+        f"Posições verificadas: "
+        f"{tentativas}"
+    )
 
-    return encontrados
+    if inicio is None:
 
+        erro(
+            "MAGIC_INICIO não encontrado."
+        )
 
-# ============================================================
-# DEBUG DA MENSAGEM
-# ============================================================
-
-def debug_mensagem(payload: bytes, marcador: int, tamanho: int):
-    titulo("REGIÃO DA MENSAGEM")
-
-    msg_inicio = marcador + INICIO_BYTES
-    msg_fim = msg_inicio + tamanho * 4
-
-    print(f"Marcador:          {marcador}")
-    print(f"INICIO_BYTES:      {INICIO_BYTES}")
-    print(f"Início mensagem:   {msg_inicio}")
-    print(f"Tamanho lógico:    {tamanho} bytes")
-    print(f"Espaço carrier:    {tamanho * 4} bytes")
-    print(f"Fim da região:     {msg_fim}")
-    print(f"Tamanho carrier:   {len(payload)} bytes")
-
-    if msg_fim > len(payload):
-        print()
-        print("[ERRO] Mensagem ultrapassa o final do carrier.")
         return None
 
-    mensagem, fim_real = _ler_mensagem(payload, msg_inicio, tamanho)
+    ok(
+        f"MAGIC_INICIO encontrado "
+        f"na posição {inicio}"
+    )
+
+    info(
+        f"Valor: "
+        f"0x{MAGIC_INICIO:04X}"
+    )
+
+    info(
+        f"Carrier usado: "
+        f"{inicio} → "
+        f"{inicio + INICIO_BYTES - 1}"
+    )
+
+    info(
+        f"Tamanho: "
+        f"{INICIO_BYTES} bytes"
+    )
+
+    return inicio
+
+
+# ============================================================
+# MENSAGEM
+# ============================================================
+
+def inspecionar_mensagem(
+    payload,
+    inicio,
+    tamanho
+):
+    secao("DADOS DA MENSAGEM")
+
+    if inicio is None:
+        erro(
+            "Não é possível localizar a mensagem."
+        )
+        return None
+
+    msg_inicio = (
+        inicio + INICIO_BYTES
+    )
+
+    msg_fim = (
+        msg_inicio +
+        tamanho * 4 -
+        1
+    )
+
+    info(
+        f"Início no carrier: "
+        f"{msg_inicio}"
+    )
+
+    info(
+        f"Fim no carrier: "
+        f"{msg_fim}"
+    )
+
+    info(
+        f"Bytes do carrier usados: "
+        f"{tamanho * 4}"
+    )
+
+    info(
+        f"Bytes reais da mensagem: "
+        f"{tamanho}"
+    )
+
+    info(
+        "Relação: 1 byte de mensagem = "
+        "4 bytes de carrier"
+    )
+
+    if msg_fim >= len(payload):
+        erro(
+            "Mensagem ultrapassa o payload."
+        )
+        return None
+
+    mensagem, _ = ler_bytes(
+        payload,
+        msg_inicio,
+        tamanho
+    )
 
     print()
-    print(f"Fim calculado:     {msg_fim}")
-    print(f"Fim da leitura:    {fim_real}")
 
-    print()
-    print(f"Mensagem recuperada: {mensagem!r}")
-    print(f"Hex:                 {hex_bytes(mensagem)}")
+    info(
+        f"Mensagem recuperada: "
+        f"{repr(mensagem)}"
+    )
+
+    info(
+        f"HEX: "
+        f"{hex_bytes(mensagem)}"
+    )
+
+    info(
+        f"ASCII: "
+        f"{texto_seguro(mensagem)}"
+    )
 
     return mensagem
 
 
-def _ler_mensagem(payload: bytes, pos: int, tamanho: int):
-    resultado = bytearray()
-
-    for _ in range(tamanho):
-        valor, pos = ler_int(payload, pos, 8)
-        resultado.append(valor)
-
-    return bytes(resultado), pos
-
-
 # ============================================================
-# DEBUG DOS 2 LSBs
+# LSBs
 # ============================================================
 
-def debug_lsb(payload: bytes, inicio: int, tamanho: int):
-    titulo("MAPA DOS 2 LSBs")
+def inspecionar_lsbs(
+    payload,
+    inicio,
+    tamanho
+):
+    secao("LSBs DO CARRIER")
 
-    msg_inicio = inicio + INICIO_BYTES
-    msg_fim = msg_inicio + tamanho * 4
+    mapa = mapa_payload(
+        payload,
+        inicio,
+        tamanho
+    )
 
-    if msg_fim > len(payload):
-        print("[ERRO] Região da mensagem inválida.")
-        return
+    print()
 
     print(
-        "Posição | Byte | Binário   | 2 LSBs"
+        "  POS    BYTE       BINÁRIO       LSB    FUNÇÃO"
     )
-    print("-" * 40)
 
-    for pos in range(msg_inicio, msg_fim):
-        byte = payload[pos]
+    print(
+        "  " + "─" * 58
+    )
+
+    for i, byte in enumerate(payload):
+
+        funcao = mapa[i]
+
+        if funcao == "H":
+            c = BLUE
+            nome = "HEADER"
+        elif funcao == "M":
+            c = GREEN
+            nome = "MARCADOR"
+        elif funcao == "D":
+            c = YELLOW
+            nome = "DADO"
+        else:
+            c = GRAY
+            nome = "LIVRE"
 
         print(
-            f"{pos:7d} | "
-            f"0x{byte:02X} | "
-            f"{byte:08b} | "
-            f"  {byte & 0b11:02b}"
+            f"  {i:04d}   "
+            f"0x{byte:02X}     "
+            f"{byte:08b}      "
+            f"{cor(bits2(byte & 0b11), c)}    "
+            f"{cor(nome, c)}"
         )
 
 
 # ============================================================
-# DEBUG COMPLETO DE UM PAYLOAD
+# COMPARAÇÃO DE MENSAGEM
 # ============================================================
 
-def debug_payload(payload: bytes, numero=None):
-    titulo(
-        f"PAYLOAD {numero}"
-        if numero is not None
-        else "PAYLOAD"
-    )
+def comparar_mensagem(
+    original,
+    recuperada
+):
+    secao("COMPARAÇÃO FINAL")
 
-    print(f"Tamanho: {len(payload)} bytes")
+    if recuperada == original:
 
-    if MOSTRAR_HEX:
+        ok("A mensagem foi recuperada corretamente.")
+
         print()
-        print("Primeiros bytes:")
-        print(hex_bytes(payload, MAX_HEX_BYTES))
-
-    header = debug_header(payload)
-
-    if header is None:
-        return
-
-    marcadores = encontrar_marcadores(payload)
-
-    if not marcadores:
-        return
-
-    marcador = marcadores[0]
-
-    mensagem = debug_mensagem(
-        payload,
-        marcador,
-        header["tam"],
-    )
-
-    if MOSTRAR_LSB and mensagem is not None:
-        debug_lsb(
-            payload,
-            marcador,
-            header["tam"],
+        info(
+            f"Original : {original!r}"
         )
 
+        info(
+            f"Recebida : {recuperada!r}"
+        )
+
+        return True
+
+    erro(
+        "A mensagem recuperada é diferente."
+    )
+
+    print()
+
+    info(
+        f"Original : {original!r}"
+    )
+
+    info(
+        f"Recebida : {recuperada!r}"
+    )
+
+    print()
+
+    tamanho = max(
+        len(original),
+        len(recuperada or b"")
+    )
+
+    for i in range(tamanho):
+
+        a = (
+            original[i]
+            if i < len(original)
+            else None
+        )
+
+        b = (
+            recuperada[i]
+            if recuperada is not None
+            and i < len(recuperada)
+            else None
+        )
+
+        if a != b:
+
+            print(
+                f"  posição {i}: "
+                f"{cor(str(a), RED)} → "
+                f"{cor(str(b), RED)}"
+            )
+
+    return False
+
 
 # ============================================================
-# TESTE DE UM FRAGMENTO
+# INSPEÇÃO DE UM PAYLOAD
 # ============================================================
 
-def testar_fragmento(carrier: bytes, mensagem: bytes, seq: int, total: int):
-    titulo(f"TESTE DO FRAGMENTO seq={seq}")
+def inspecionar_payload(
+    payload,
+    carrier_original,
+    indice
+):
+    print()
 
-    print(f"Mensagem: {mensagem!r}")
-    print(f"Tamanho:  {len(mensagem)}")
-    print(f"Seq:      {seq}")
-    print(f"Total:    {total}")
+    print(
+        cor(
+            "╔" + "═" * (W - 2) + "╗",
+            MAGENTA
+        )
+    )
+
+    titulo = (
+        f" PAYLOAD {indice} "
+        f"({len(payload)} bytes) "
+    )
+
+    print(
+        cor(
+            "║" +
+            titulo.center(W - 2) +
+            "║",
+            MAGENTA + BOLD
+        )
+    )
+
+    print(
+        cor(
+            "╚" + "═" * (W - 2) + "╝",
+            MAGENTA
+        )
+    )
+
+    # Header
+    (
+        magic,
+        total,
+        seq,
+        tamanho
+    ) = inspecionar_header(payload)
+
+    if magic != MAGIC_HEADER:
+        erro(
+            "Payload inválido por causa do MAGIC_HEADER."
+        )
+        return None
+
+    # Marcador
+    inicio = inspecionar_marcador(
+        payload
+    )
+
+    # Mensagem
+    mensagem = inspecionar_mensagem(
+        payload,
+        inicio,
+        tamanho
+    )
+
+    # Mapa
+    secao("MAPA DO CARRIER")
+
+    if inicio is not None:
+        imprimir_mapa(
+            payload,
+            inicio,
+            tamanho
+        )
+
+    # LSBs
+    inspecionar_lsbs(
+        payload,
+        inicio,
+        tamanho
+    )
+
+    # Bytes alterados
+    mostrar_bytes_alterados(
+        carrier_original,
+        payload
+    )
+
+    # Payload
+    mostrar_payload(
+        payload,
+        carrier_original
+    )
+
+    # Resultado da API
+    secao("DECODIFICAÇÃO VIA STEGO.PY")
+
+    resultado = decodificar(payload)
+
+    if resultado is None:
+
+        erro(
+            "stego.decodificar() retornou None."
+        )
+
+        return None
+
+    ok("Payload aceito pelo protocolo.")
+
+    info(
+        f"seq      = {resultado['seq']}"
+    )
+
+    info(
+        f"total    = {resultado['total']}"
+    )
+
+    info(
+        f"mensagem = {resultado['mensagem']!r}"
+    )
+
+    return resultado
+
+
+# ============================================================
+# REMONTAGEM
+# ============================================================
+
+def testar_remontagem(
+    payloads,
+    mensagem_original
+):
+    secao("REMONTAGEM FORA DE ORDEM")
+
+    indices = list(
+        range(len(payloads))
+    )
+
+    indices.reverse()
+
+    info(
+        f"Ordem original: "
+        f"{list(range(len(payloads)))}"
+    )
+
+    info(
+        f"Ordem testada:  "
+        f"{indices}"
+    )
+
+    print()
+
+    fragmentos = {}
+    total = None
+
+    for indice in indices:
+
+        resultado = decodificar(
+            payloads[indice]
+        )
+
+        if resultado is None:
+
+            erro(
+                f"Payload {indice}: "
+                f"falha na decodificação"
+            )
+
+            continue
+
+        seq = resultado["seq"]
+
+        if total is None:
+            total = resultado["total"]
+
+        fragmentos[seq] = resultado[
+            "mensagem"
+        ]
+
+        info(
+            f"Payload {indice} → "
+            f"seq={seq} "
+            f"({len(fragmentos)}/{total})"
+        )
+
+    print()
+
+    if total is None:
+        erro("Nenhum fragmento válido.")
+        return None
+
+    if len(fragmentos) != total:
+
+        erro(
+            f"Remontagem incompleta: "
+            f"{len(fragmentos)}/{total}"
+        )
+
+        return None
+
+    recuperada = b"".join(
+        fragmentos[i]
+        for i in range(total)
+    )
+
+    ok(
+        "Todos os fragmentos foram encontrados."
+    )
+
+    comparar_mensagem(
+        mensagem_original,
+        recuperada
+    )
+
+    return recuperada
+
+
+# ============================================================
+# TESTE DE CODIFICAÇÃO INDIVIDUAL
+# ============================================================
+
+def testar_codificacao_individual(
+    carrier
+):
+    secao("TESTE DE CODIFICAÇÃO INDIVIDUAL")
+
+    mensagem = b"ABC"
+
+    info(
+        f"Mensagem de teste: "
+        f"{mensagem!r}"
+    )
 
     payload = codificar(
         carrier,
         mensagem,
-        seq,
-        total,
+        seq=0,
+        total=1
     )
 
-    print()
-    print("Codificação concluída.")
+    ok(
+        f"Payload criado: "
+        f"{len(payload)} bytes"
+    )
 
-    comparar_bytes(carrier, payload)
-
-    resultado = decodificar(payload)
-
-    print()
-    print("Resultado da decodificação:")
+    resultado = decodificar(
+        payload
+    )
 
     if resultado is None:
-        print("[ERRO] Decodificação falhou.")
-        return payload
 
-    print(f"  seq:      {resultado['seq']}")
-    print(f"  total:    {resultado['total']}")
-    print(f"  mensagem: {resultado['mensagem']!r}")
-
-    if resultado["mensagem"] == mensagem:
-        print()
-        print("[OK] Mensagem recuperada corretamente.")
-    else:
-        print()
-        print("[ERRO] Mensagem recuperada é diferente.")
-
-    return payload
-
-
-# ============================================================
-# TESTE COMPLETO
-# ============================================================
-
-def teste_completo():
-    titulo("TESTE COMPLETO DO PROTOCOLO")
-
-    carrier = (
-        CARRIER
-        if CARRIER is not None
-        else os.urandom(CARRIER_TAMANHO)
-    )
-
-    print(f"Carrier:    {len(carrier)} bytes")
-    print(f"Capacidade: {capacidade(carrier)} bytes/fragmento")
-    print(f"Mensagem:   {MENSAGEM!r}")
-    print(f"Tamanho:    {len(MENSAGEM)} bytes")
-
-    cap = capacidade(carrier)
-
-    if cap <= 0:
-        print()
-        print("[ERRO] Carrier não possui capacidade.")
-        return
-
-    if len(MENSAGEM) == 0:
-        print()
-        print("[ERRO] Mensagem vazia.")
-        return
-
-    print()
-    print("Gerando fragmentos...")
-
-    payloads = codificar_mensagem(
-        MENSAGEM,
-        carrier,
-    )
-
-    print(f"Fragmentos gerados: {len(payloads)}")
-
-    # --------------------------------------------------------
-    # Inspeção individual
-    # --------------------------------------------------------
-
-    for i, payload in enumerate(payloads):
-        debug_payload(payload, i)
-
-    # --------------------------------------------------------
-    # Comparação dos payloads
-    # --------------------------------------------------------
-
-    titulo("COMPARAÇÃO DOS PAYLOADS")
-
-    for i, payload in enumerate(payloads):
-        print()
-        print(f"Fragmento {i}:")
-        comparar_bytes(carrier, payload)
-
-    # --------------------------------------------------------
-    # Decodificação individual
-    # --------------------------------------------------------
-
-    titulo("DECODIFICAÇÃO INDIVIDUAL")
-
-    resultados = []
-
-    for i, payload in enumerate(payloads):
-        resultado = decodificar(payload)
-
-        if resultado is None:
-            print(f"[ERRO] Fragmento {i} não pôde ser decodificado.")
-            continue
-
-        resultados.append(resultado)
-
-        print(
-            f"[OK] fragmento={i} "
-            f"seq={resultado['seq']} "
-            f"total={resultado['total']} "
-            f"tam={len(resultado['mensagem'])} "
-            f"mensagem={resultado['mensagem']!r}"
+        erro(
+            "Falha ao decodificar payload."
         )
 
-    # --------------------------------------------------------
-    # Remontagem normal
-    # --------------------------------------------------------
+        return
 
-    titulo("REMONTAGEM NORMAL")
+    if resultado["mensagem"] == mensagem:
 
-    recuperada = __import__("stego").remontar(payloads)
+        ok(
+            "Codificação individual "
+            "funciona corretamente."
+        )
 
-    if recuperada == MENSAGEM:
-        print("[OK] Remontagem normal.")
-        print(f"Mensagem: {recuperada!r}")
     else:
-        print("[ERRO] Remontagem normal.")
-        print(f"Esperado: {MENSAGEM!r}")
-        print(f"Recebido: {recuperada!r}")
 
-    # --------------------------------------------------------
-    # Remontagem fora de ordem
-    # --------------------------------------------------------
-
-    titulo("REMONTAGEM FORA DE ORDEM")
-
-    invertidos = list(reversed(payloads))
-
-    recuperada = __import__("stego").remontar(invertidos)
-
-    if recuperada == MENSAGEM:
-        print("[OK] Remontagem fora de ordem.")
-        print(f"Mensagem: {recuperada!r}")
-    else:
-        print("[ERRO] Remontagem fora de ordem.")
-        print(f"Esperado: {MENSAGEM!r}")
-        print(f"Recebido: {recuperada!r}")
-
-    # --------------------------------------------------------
-    # Resumo
-    # --------------------------------------------------------
-
-    titulo("RESUMO")
-
-    print(f"Carrier              : {len(carrier)} bytes")
-    print(f"Capacidade/fragmento : {cap} bytes")
-    print(f"Mensagem             : {len(MENSAGEM)} bytes")
-    print(f"Fragmentos           : {len(payloads)}")
-    print()
-
-    if recuperada == MENSAGEM:
-        print("[OK] PROTOCOLO FUNCIONANDO.")
-    else:
-        print("[ERRO] PROTOCOLO COM FALHA.")
+        erro(
+            "Mensagem individual "
+            "não foi recuperada."
+        )
 
 
 # ============================================================
 # MAIN
 # ============================================================
 
+def main():
+
+    # --------------------------------------------------------
+    # Mensagem
+    # --------------------------------------------------------
+
+    if len(sys.argv) > 1:
+        mensagem = sys.argv[1].encode()
+    else:
+        mensagem = (
+            b"Hello, World!"
+        )
+
+    # Usa o carrier definido em stego.py
+    if stego.CARRIER is not None:
+        carrier = stego.CARRIER
+    else:
+        carrier = os.urandom(
+            stego.CARRIER_TAMANHO
+        )
+
+    print()
+    print(
+        cor(
+            "╔" + "═" * (W - 2) + "╗",
+            CYAN
+        )
+    )
+
+    print(
+        cor(
+            "║" +
+            " DEBUG DO PROTOCOLO DE ESTEGANOGRAFIA ".center(W - 2) +
+            "║",
+            CYAN + BOLD
+        )
+    )
+
+    print(
+        cor(
+            "╚" + "═" * (W - 2) + "╝",
+            CYAN
+        )
+    )
+
+    # --------------------------------------------------------
+    # Configuração
+    # --------------------------------------------------------
+
+    mostrar_configuracao(
+        mensagem,
+        carrier
+    )
+
+    # --------------------------------------------------------
+    # Teste básico
+    # --------------------------------------------------------
+
+    testar_codificacao_individual(
+        carrier
+    )
+
+    # --------------------------------------------------------
+    # Fragmentação
+    # --------------------------------------------------------
+
+    mostrar_fragmentacao(
+        mensagem,
+        carrier
+    )
+
+    # --------------------------------------------------------
+    # Codificação
+    # --------------------------------------------------------
+
+    secao("CODIFICAÇÃO DA MENSAGEM")
+
+    payloads = codificar_mensagem(
+        mensagem,
+        carrier
+    )
+
+    ok(
+        f"{len(payloads)} payload(s) gerado(s)"
+    )
+
+    # --------------------------------------------------------
+    # Inspeciona cada payload
+    # --------------------------------------------------------
+
+    for seq, payload in enumerate(
+        payloads
+    ):
+
+        inspecionar_payload(
+            payload,
+            carrier,
+            seq
+        )
+
+    # --------------------------------------------------------
+    # Remontagem
+    # --------------------------------------------------------
+
+    testar_remontagem(
+        payloads,
+        mensagem
+    )
+
+    # --------------------------------------------------------
+    # Final
+    # --------------------------------------------------------
+
+    print()
+
+    print(
+        cor(
+            "═" * W,
+            GREEN
+        )
+    )
+
+    print(
+        cor(
+            "  DEBUG FINALIZADO",
+            GREEN + BOLD
+        )
+    )
+
+    print(
+        cor(
+            "═" * W,
+            GREEN
+        )
+    )
+
+
 if __name__ == "__main__":
-    teste_completo()
+    main()
