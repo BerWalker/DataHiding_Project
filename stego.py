@@ -2,188 +2,188 @@ import os
 import random
 
 # ============================================================
-# CONFIGURAÇÃO
+# CONFIGURATION
 # ============================================================
 
 MAGIC_HEADER = 0xABCD
-MAGIC_INICIO = 0xD3A7
+MAGIC_START = 0xD3A7
 
 HEADER_BYTES = 20
-INICIO_BYTES = 8
+START_BYTES = 8
 
-MENSAGEM = b"Hello, World!"
+MESSAGE = b"Hello, World!"
 
 CARRIER = b"\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037 !\"#$%&'()*+,-./01234567" # None for random carrier 
-CARRIER_TAMANHO = 80 # Only used if CARRIER is None
+CARRIER_SIZE = 80 # Only used if CARRIER is None
 
 
 # ============================================================
 # BITS
 # ============================================================
 
-def escrever_bits(carrier, pos, valor, bits):
+def write_bits(carrier, pos, value, bits):
     for word in range(bits // 2):
-        carrier[pos + word] = (carrier[pos + word] & 0b11111100) | (valor & 0b11)
-        valor >>= 2
+        carrier[pos + word] = (carrier[pos + word] & 0b11111100) | (value & 0b11)
+        value >>= 2
 
     return pos + bits // 2
 
 
-def ler_bits(carrier, pos, bits):
-    valor = 0
+def read_bits(carrier, pos, bits):
+    value = 0
 
     for word in range(bits // 2):
-        bits_recuperados = carrier[pos + word] & 0b11
-        valor |= bits_recuperados << (word * 2)
+        recovered_bits = carrier[pos + word] & 0b11
+        value |= recovered_bits << (word * 2)
 
-    return valor, pos + bits // 2
+    return value, pos + bits // 2
 
 
-def esconder_bytes(carrier, pos, dados):
-    for byte in dados:
-        pos = escrever_bits(carrier, pos, byte, 8)
+def hide_bytes(carrier, pos, data):
+    for byte in data:
+        pos = write_bits(carrier, pos, byte, 8)
 
     return pos
 
 
-def ler_bytes(carrier, pos, quantidade):
-    dados = bytearray()
+def read_bytes(carrier, pos, amount):
+    data = bytearray()
 
-    for _ in range(quantidade):
-        byte, pos = ler_bits(carrier, pos, 8)
-        dados.append(byte)
+    for _ in range(amount):
+        byte, pos = read_bits(carrier, pos, 8)
+        data.append(byte)
 
-    return bytes(dados), pos
-
-
-# ============================================================
-# CAPACIDADE
-# ============================================================
-
-def capacidade(carrier):
-    """Retorna quantos bytes de mensagem cabem no carrier."""
-    disponivel = len(carrier) - HEADER_BYTES - INICIO_BYTES
-    return max(0, disponivel // 4)
+    return bytes(data), pos
 
 
 # ============================================================
-# CODIFICAÇÃO
+# CAPACITY
 # ============================================================
 
-def codificar(carrier, mensagem, seq, total):
+def capacity(carrier):
+    """Returns how many bytes of message fit in the carrier."""
+    available = len(carrier) - HEADER_BYTES - START_BYTES
+    return max(0, available // 4)
+
+
+# ============================================================
+# ENCODING
+# ============================================================
+
+def encode(carrier, message, seq, total):
     buf = bytearray(carrier)
 
     # Header
-    pos = escrever_bits(buf, 0, MAGIC_HEADER, 16)
-    pos = escrever_bits(buf, pos, total, 8)
-    pos = escrever_bits(buf, pos, seq, 8)
-    escrever_bits(buf, pos, len(mensagem), 8)
+    pos = write_bits(buf, 0, MAGIC_HEADER, 16)
+    pos = write_bits(buf, pos, total, 8)
+    pos = write_bits(buf, pos, seq, 8)
+    write_bits(buf, pos, len(message), 8)
 
-    # Escolhe onde ficará o marcador
-    max_inicio = len(buf) - INICIO_BYTES - len(mensagem) * 4
-    inicio = random.randint(HEADER_BYTES, max_inicio)
+    # Choose where the marker will be
+    max_start = len(buf) - START_BYTES - len(message) * 4
+    start = random.randint(HEADER_BYTES, max_start)
 
-    # Marcador + mensagem
-    escrever_bits(buf, inicio, MAGIC_INICIO, 16)
-    esconder_bytes(buf, inicio + INICIO_BYTES, mensagem)
+    # Marker + message
+    write_bits(buf, start, MAGIC_START, 16)
+    hide_bytes(buf, start + START_BYTES, message)
 
     return bytes(buf)
 
 
 # ============================================================
-# DECODIFICAÇÃO
+# DECODING
 # ============================================================
 
-def decodificar(carrier):
+def decode(carrier):
     if len(carrier) < HEADER_BYTES:
         return None
 
-    # Lê o header
-    magic, pos = ler_bits(carrier, 0, 16)
-    total, pos = ler_bits(carrier, pos, 8)
-    seq, pos = ler_bits(carrier, pos, 8)
-    tamanho, pos = ler_bits(carrier, pos, 8)
+    # Read header
+    magic, pos = read_bits(carrier, 0, 16)
+    total, pos = read_bits(carrier, pos, 8)
+    seq, pos = read_bits(carrier, pos, 8)
+    size, pos = read_bits(carrier, pos, 8)
 
-    # Validação
+    # Validation
     if magic != MAGIC_HEADER:
         return None
 
-    if total == 0 or seq >= total or tamanho == 0:
+    if total == 0 or seq >= total or size == 0:
         return None
 
-    # Procura o marcador
-    inicio = None
+    # Find the marker
+    start = None
 
-    for p in range(HEADER_BYTES, len(carrier) - INICIO_BYTES + 1):
-        marcador, _ = ler_bits(carrier, p, 16)
+    for p in range(HEADER_BYTES, len(carrier) - START_BYTES + 1):
+        marker, _ = read_bits(carrier, p, 16)
 
-        if marcador == MAGIC_INICIO:
-            inicio = p
+        if marker == MAGIC_START:
+            start = p
             break
 
-    if inicio is None:
+    if start is None:
         return None
 
-    # Verifica se a mensagem cabe
-    pos = inicio + INICIO_BYTES
+    # Verify if message fits
+    pos = start + START_BYTES
 
-    if pos + tamanho * 4 > len(carrier):
+    if pos + size * 4 > len(carrier):
         return None
 
-    mensagem, _ = ler_bytes(carrier, pos, tamanho)
+    message, _ = read_bytes(carrier, pos, size)
 
     return {
         "seq": seq,
         "total": total,
-        "mensagem": mensagem
+        "message": message
     }
 
 
 # ============================================================
-# FRAGMENTAÇÃO
+# FRAGMENTATION
 # ============================================================
 
-def codificar_mensagem(mensagem, carrier):
-    cap = capacidade(carrier)
+def encode_message(message, carrier):
+    cap = capacity(carrier)
 
-    fragmentos = [
-        mensagem[i:i + cap]
-        for i in range(0, len(mensagem), cap)
+    fragments = [
+        message[i:i + cap]
+        for i in range(0, len(message), cap)
     ]
 
-    total = len(fragmentos)
+    total = len(fragments)
 
     return [
-        codificar(carrier, fragmento, seq, total)
-        for seq, fragmento in enumerate(fragmentos)
+        encode(carrier, fragment, seq, total)
+        for seq, fragment in enumerate(fragments)
     ]
 
 
 # ============================================================
-# REMONTAGEM
+# REASSEMBLY
 # ============================================================
 
-def remontar(payloads):
-    fragmentos = {}
+def reassemble(payloads):
+    fragments = {}
     total = None
 
     for payload in payloads:
-        dados = decodificar(payload)
+        data = decode(payload)
 
-        if dados is None:
+        if data is None:
             return None
 
         if total is None:
-            total = dados["total"]
-        elif dados["total"] != total:
+            total = data["total"]
+        elif data["total"] != total:
             return None
 
-        fragmentos[dados["seq"]] = dados["mensagem"]
+        fragments[data["seq"]] = data["message"]
 
-    if total is None or len(fragmentos) != total:
+    if total is None or len(fragments) != total:
         return None
 
-    return b"".join(fragmentos[i] for i in range(total))
+    return b"".join(fragments[i] for i in range(total))
 
 
 # ============================================================
@@ -191,67 +191,67 @@ def remontar(payloads):
 # ============================================================
 
 if __name__ == "__main__":
-    carrier = CARRIER or os.urandom(CARRIER_TAMANHO)
+    carrier = CARRIER or os.urandom(CARRIER_SIZE)
 
     print("=" * 60)
-    print("ESTEGANOGRAFIA")
+    print("STEGANOGRAPHY")
     print("=" * 60)
 
     print(f"Carrier:     {len(carrier)} bytes")
-    print(f"Capacidade:  {capacidade(carrier)} bytes/fragmento")
-    print(f"Mensagem:    {MENSAGEM!r}")
-    print(f"Tamanho:     {len(MENSAGEM)} bytes")
+    print(f"Capacity:    {capacity(carrier)} bytes/fragment")
+    print(f"Message:     {MESSAGE!r}")
+    print(f"Size:        {len(MESSAGE)} bytes")
 
-    # Carrier original
+    # Original carrier
     print()
-    print("Carrier original:")
+    print("Original carrier:")
     print(f"  HEX:   {carrier.hex(' ')}")
     print(f"  ASCII: {''.join(chr(b) if 32 <= b <= 126 else '.' for b in carrier)}")
 
-    # Codificação
-    payloads = codificar_mensagem(MENSAGEM, carrier)
+    # Encoding
+    payloads = encode_message(MESSAGE, carrier)
 
     print()
-    print(f"Fragmentos: {len(payloads)}")
+    print(f"Fragments: {len(payloads)}")
 
     for i, payload in enumerate(payloads):
 
-        dados = decodificar(payload)
+        data = decode(payload)
 
         print()
         print("-" * 60)
-        print(f"FRAGMENTO {i}")
+        print(f"FRAGMENT {i}")
         print("-" * 60)
 
-        if dados is None:
-            print("[ERRO] Payload inválido")
+        if data is None:
+            print("[ERROR] Invalid payload")
             continue
 
         print(f"Magic:       0x{MAGIC_HEADER:04X}")
-        print(f"Total:       {dados['total']}")
-        print(f"Seq:         {dados['seq']}")
-        print(f"Tamanho:     {len(dados['mensagem'])} bytes")
-        print(f"Mensagem:    {dados['mensagem']!r}")
+        print(f"Total:       {data['total']}")
+        print(f"Seq:         {data['seq']}")
+        print(f"Size:        {len(data['message'])} bytes")
+        print(f"Message:     {data['message']!r}")
 
         print()
         print("Payload:")
         print(f"  HEX:   {payload.hex(' ')}")
 
-    # Remontagem fora de ordem
+    # Reassembly out of order
     print()
     print("-" * 60)
-    print("REMONTAGEM")
+    print("REASSEMBLY")
     print("-" * 60)
 
-    recuperada = remontar(payloads[::-1])
+    recovered = reassemble(payloads[::-1])
 
-    if recuperada == MENSAGEM:
-        print("[OK] Mensagem recuperada corretamente")
-        print(f"     {recuperada!r}")
+    if recovered == MESSAGE:
+        print("[OK] Message recovered correctly")
+        print(f"     {recovered!r}")
     else:
-        print("[ERRO] Mensagem diferente")
-        print(f"     Esperado: {MENSAGEM!r}")
-        print(f"     Recebido: {recuperada!r}")
+        print("[ERROR] Different message")
+        print(f"     Expected: {MESSAGE!r}")
+        print(f"     Received: {recovered!r}")
 
     print("=" * 60)
 
