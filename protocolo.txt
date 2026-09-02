@@ -1,0 +1,89 @@
+Cabeçalho (Numero magico + Quantidade de fragmentos + Número de sequência deste fragmento + Tamanho do fragmento atual) + Inicio + Mensagem 
+
+Cabeçalho (2 bits menos significativos)
+Inicio (2 bits menos significativos)
+Mensagem (2 bits menos significativos)
+
+Cabeçalho sempre no inicio do pacote
+Inicio pode estar em qualquer lugar do pacote
+Mensagem sempre após o inicio
+
+m = Numero magico (16 bits)
+total = Quantidade de fragmentos/pacotes (8 bits)
+seq = Numero do fragmento/pacote atual (8 bits)
+t = Tamanho em bytes da mensagem deste fragmento (8 bits)
+i = Inicio da mensagem (8 bits)
+
+Payload 1: [m][total=3][seq=0][t=4]--resto do payload--[i]["Ola,"]--resto do payload--
+Payload 2: [m][total=3][seq=1][t=4]--resto do payload--[i][" Mun"]--resto do payload--
+Payload 3: [m][total=3][seq=2][t=3]--resto do payload--[i]["do!"]---resto do payload--
+
+
+
+                    CODIFICADOR
+                         │
+                         ▼
+                 Dividir mensagem
+                  em fragmentos
+                         │
+                         ▼
+              Para cada fragmento:
+                         │
+             ┌───────────┴───────────┐
+             ▼                       ▼
+       Criar cabeçalho         Escolher posição i
+       m,total,seq,t                 │
+             │                       │
+             └───────────┬───────────┘
+                         ▼
+                 Esconder cabeçalho
+                   nos 2 LSBs
+                         │
+                         ▼
+                  Esconder INICIO
+                         │
+                         ▼
+                  Esconder mensagem
+                         │
+                         ▼
+                    Payload final
+
+
+
+
+
+                    DECODIFICADOR
+                         │
+                         ▼
+                  Ler cabeçalho
+                         │
+                         ▼
+                 m == NUMERO_MAGICO?
+                    /          \
+                  não           sim
+                   │             │
+                descarta         ▼
+                            ler total
+                            ler seq
+                            ler t
+                            ler i
+                                  │
+                                  ▼
+                           ler INICIO
+                                  │
+                                  ▼
+                           ler t bytes
+                                  │
+                                  ▼
+                         guardar fragmento
+                                  │
+                                  ▼
+                      todos os fragmentos?
+                         /          \
+                       não           sim
+                        │             │
+                      espera          ▼
+                              ordenar por seq
+                                    │
+                                    ▼
+                              mensagem final
