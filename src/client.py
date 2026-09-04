@@ -1,3 +1,4 @@
+import os
 import socket
 import struct
 
@@ -10,7 +11,7 @@ from stego import decode, reassemble
 HOST              = "0.0.0.0"
 FORMATO           = "!BBHHH"
 ICMP_ECHO_REQUEST = 8
-TIMEOUT           = 10  # seconds without a new packet before giving up
+TIMEOUT           = int(os.environ.get("TIMEOUT", "10"))  # seconds without a new packet before giving up
 
 
 # ============================================================

@@ -1,0 +1,47 @@
+networks:
+  data-hiding:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.0.1.0/24
+
+services:
+
+  # ── Receiver ────────────────────────────────────────────────
+  recebe:
+    build:
+      context: .
+      dockerfile: Dockerfile.recebe
+    container_name: recebe
+    hostname: recebe
+    networks:
+      data-hiding:
+        ipv4_address: 10.0.1.2
+    volumes:
+      - ./src:/src
+    cap_add:
+      - NET_RAW      # raw sockets (ICMP)
+      - NET_ADMIN    # tcpdump / packet capture
+    environment:
+      - TIMEOUT=30
+
+  # ── Sender ──────────────────────────────────────────────────
+  envia:
+    build:
+      context: .
+      dockerfile: Dockerfile.envia
+    container_name: envia
+    hostname: envia
+    networks:
+      data-hiding:
+        ipv4_address: 10.0.1.3
+    volumes:
+      - ./src:/src
+    cap_add:
+      - NET_RAW      # raw sockets (ICMP)
+      - NET_ADMIN
+    environment:
+      - SERVER_HOST=10.0.1.2
+    depends_on:
+      - recebe
