@@ -75,7 +75,7 @@ if __name__ == "__main__":
             if len(received) == total_frags:
                 print()
                 print(f"[OK] All {total_frags} fragment(s) received")
-                break
+                continue
 
     print()
     print("-" * 60)

@@ -24,7 +24,7 @@ services:
       - NET_RAW      # raw sockets (ICMP)
       - NET_ADMIN    # tcpdump / packet capture
     environment:
-      - TIMEOUT=30
+      - TIMEOUT=120
 
   # ── Sender ──────────────────────────────────────────────────
   envia:
