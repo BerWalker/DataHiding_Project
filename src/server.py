@@ -1,17 +1,15 @@
 import os
 import socket
-import struct
 
+from icmp import ICMP_ECHO_REQUEST, cria_socket, parse_icmp
 from stego import decode, reassemble
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
-HOST              = "0.0.0.0"
-FORMATO           = "!BBHHH"
-ICMP_ECHO_REQUEST = 8
-TIMEOUT           = int(os.environ.get("TIMEOUT", "10"))  # seconds without a new packet before giving up
+HOST    = "0.0.0.0"
+TIMEOUT = int(os.environ.get("TIMEOUT", "10"))  # seconds without a new packet before giving up
 
 
 # ============================================================
@@ -28,7 +26,7 @@ if __name__ == "__main__":
     print(f"Listening on {HOST}  (timeout: {TIMEOUT}s)")
     print()
 
-    with socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP) as s:
+    with cria_socket() as s:
         s.bind((HOST, 0))
         s.settimeout(TIMEOUT)
 
@@ -39,18 +37,15 @@ if __name__ == "__main__":
                 print("[TIMEOUT] No more packets received")
                 break
 
-            # IP header is always 20 bytes → ICMP starts at offset 20
-            icmp = dados[20:]
-            if len(icmp) < 8:
+            icmp = parse_icmp(dados)
+            if icmp is None:
                 continue
-
-            tipo, codigo, checksum, icmp_id, icmp_seq = struct.unpack(FORMATO, icmp[:8])
 
             # Only process Echo Requests (type 8)
-            if tipo != ICMP_ECHO_REQUEST:
+            if icmp["tipo"] != ICMP_ECHO_REQUEST:
                 continue
 
-            stego_payload = icmp[8:]
+            stego_payload = icmp["payload"]
             data          = decode(stego_payload)
 
             # Ignore packets that aren't valid stego carriers
@@ -67,8 +62,8 @@ if __name__ == "__main__":
             total_frags        = data["total"]
 
             print(f"  [RECV] from={addr[0]}"
-                  f" | icmp_id=0x{icmp_id:04X}"
-                  f" | icmp_seq={icmp_seq}"
+                  f" | icmp_id=0x{icmp['icmp_id']:04X}"
+                  f" | icmp_seq={icmp['icmp_seq']}"
                   f" | stego={frag_seq + 1}/{total_frags}"
                   f" | fragment={data['message']!r}")
 
