@@ -20,11 +20,13 @@ services:
         ipv4_address: 10.0.1.2
     volumes:
       - ./src:/src
+      - ./output:/output          # received files are saved here
     cap_add:
-      - NET_RAW      # raw sockets (ICMP)
-      - NET_ADMIN    # tcpdump / packet capture
+      - NET_RAW
+      - NET_ADMIN
     environment:
       - TIMEOUT=120
+      - OUTPUT_DIR=/output
 
   # ── Sender ──────────────────────────────────────────────────
   envia:
@@ -38,10 +40,15 @@ services:
         ipv4_address: 10.0.1.3
     volumes:
       - ./src:/src
+      - ./input:/input            # place the file to send here
     cap_add:
-      - NET_RAW      # raw sockets (ICMP)
+      - NET_RAW
       - NET_ADMIN
     environment:
       - SERVER_HOST=10.0.1.2
+      # ── To send a file ─────────────────────────────────────
+      # - FILE_PATH=/input/arquitetura.mmd
+      # ── To send text (original mode) ──────────────────────
+      - MESSAGE=Hello, World!
     depends_on:
       - recebe
