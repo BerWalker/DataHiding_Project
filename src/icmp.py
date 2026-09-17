@@ -30,7 +30,7 @@ def calculate_checksum(packet: bytes) -> int:
 
 
 def create_icmp(payload: bytes, sequence: int, icmp_id: int = ICMP_ID,
-                icmp_type: int = ICMP_ECHO_REQUEST) -> bytes:
+                icmp_type: int = ICMP_ECHO_REPLY) -> bytes:
     """Build an ICMP packet whose data field is the given payload."""
     code      = 0
     checksum  = 0

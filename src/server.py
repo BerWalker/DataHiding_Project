@@ -2,7 +2,7 @@ import os
 import socket
 import sys
 
-from icmp         import ICMP_ECHO_REQUEST, create_socket, parse_icmp
+from icmp         import ICMP_ECHO_REPLY, create_socket, parse_icmp
 from stego        import decode, reassemble
 from file_payload import unpack_payload, payload_summary
 
@@ -71,8 +71,8 @@ if __name__ == "__main__":
             if icmp is None:
                 continue
 
-            # Only process Echo Requests (type 8)
-            if icmp["type"] != ICMP_ECHO_REQUEST:
+            # Only process Echo Replies (type 0)
+            if icmp["type"] != ICMP_ECHO_REPLY:
                 continue
 
             stego_payload = icmp["payload"]
