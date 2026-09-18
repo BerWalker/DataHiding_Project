@@ -11,12 +11,8 @@ from file_payload import pack_file, payload_summary
 
 SERVER_HOST = os.environ.get("SERVER_HOST", "127.0.0.1")
 
-# Fixed original carrier — the entire file is hidden in it,
-# split across multiple ICMP packets.
 CARRIER = b"\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037 !\"#$%&'()*+,-./01234567"
 
-# Modo arquivo:  defina FILE_PATH com o caminho do arquivo a enviar.
-# Modo texto:    deixe FILE_PATH vazio e defina MESSAGE (retrocompatível).
 FILE_PATH    = os.environ.get("FILE_PATH",  "")
 MESSAGE_TEXT = os.environ.get("MESSAGE",    "Hello, World!")
 

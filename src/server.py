@@ -7,7 +7,7 @@ from stego        import decode, reassemble
 from file_payload import unpack_payload, payload_summary
 
 # ============================================================
-# CONFIGURATION  (via environment variables)
+# CONFIGURATION
 # ============================================================
 
 HOST       = "0.0.0.0"
